@@ -115,6 +115,8 @@ services:
     environment:
       # Router endpoint (uses internal docker network)
       - ROUTER_ENDPOINT=http://router-backend:8001/sfc_router/chat/completions
+      # Routing-only mode: set to "true" to skip model calls and just show routing decisions
+      - ROUTING_ONLY_MODE=${ROUTING_ONLY_MODE:-false}
       # API Keys (set these via .env file or environment variables)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}

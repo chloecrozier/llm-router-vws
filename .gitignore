@@ -11,3 +11,4 @@ ngccli_linux.zip
 # Helm chart override files
 values.override.yaml
 **/values.override.yaml
+.env

@@ -533,7 +533,14 @@ async def nn_objective_fn(config: NNObjectiveConfig, _builder: Builder):
                 f"Total time: {total_time*1000:.2f}ms"
             )
             
-            return target_model, probabilities
+            # Return JSON with model, probabilities, and selection reason for transparency
+            result = json.dumps({
+                "model": target_model,
+                "selection_reason": selection_reason,
+                "confidence": round(confidence, 3),
+                "probabilities": {k: round(v, 3) for k, v in probabilities.items()}
+            })
+            return result, probabilities
         
         except Exception as e:
             logger.error(f"Error in nn_objective_fn routing: {e}", exc_info=True)

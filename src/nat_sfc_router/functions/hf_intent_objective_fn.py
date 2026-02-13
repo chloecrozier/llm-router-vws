@@ -330,7 +330,13 @@ async def hf_intent_objective_fn(config: HFIntentObjectiveConfig,
         total_response_time = time.perf_counter() - response_start
 
         logger.warn(f"User intent: {user_intent} (total response time: {total_response_time*1000:.2f}ms)")
-        return MAP_INTENT_TO_PIPELINE[user_intent], ""
+        # Return JSON with both model and intent for transparency
+        import json
+        result = json.dumps({
+            "model": MAP_INTENT_TO_PIPELINE[user_intent],
+            "intent": user_intent
+        })
+        return result, ""
     
 
     yield FunctionInfo.from_fn(

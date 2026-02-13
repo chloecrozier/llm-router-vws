@@ -86,12 +86,13 @@ def encode_image_to_base64(image_path: str, max_size: Tuple[int, int] = (800, 80
         return base64.b64encode(buffer.read()).decode('utf-8')
 
 
-def call_router(messages: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
+def call_router(messages: List[Dict]) -> Tuple[Optional[str], Optional[Dict], Optional[str]]:
     """
     Call the router endpoint to determine which model to use.
     
     Returns:
-        Tuple of (model_name, error_message)
+        Tuple of (model_name, routing_details, error_message)
+        routing_details can contain: intent (for intent router) or selection_reason/probabilities (for NN router)
     """
     try:
         payload = {
@@ -111,11 +112,21 @@ def call_router(messages: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
         response.raise_for_status()
         
         result = response.json()
-        model_name = result["choices"][0]["message"]["content"]
-        return model_name, None
+        content = result["choices"][0]["message"]["content"]
+        
+        # Try to parse as JSON (new format with details)
+        try:
+            import json
+            parsed = json.loads(content)
+            model_name = parsed.get("model", content)
+            # Return all routing details
+            return model_name, parsed, None
+        except (json.JSONDecodeError, TypeError):
+            # Fallback for old format (just model name)
+            return content, {"model": content}, None
         
     except Exception as e:
-        return None, f"Router error: {str(e)}"
+        return None, None, f"Router error: {str(e)}"
 
 
 def call_model_azure_openai(model_config: Dict, messages: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
@@ -301,7 +312,7 @@ def chat(message: str, image: Optional[str], history: List[List]) -> Tuple[List[
     
     # Step 1: Call router to determine model
     status = "🔍 Routing request..."
-    model_name, error = call_router(messages)
+    model_name, routing_details, error = call_router(messages)
     
     if error:
         # Add user message to history with image
@@ -320,6 +331,37 @@ def chat(message: str, image: Optional[str], history: List[List]) -> Tuple[List[
     
     # Get the actual model name that will be called
     actual_model = get_actual_model_name(model_name)
+    
+    # Check if we're in routing-only mode (no API keys configured)
+    ROUTING_ONLY_MODE = os.getenv("ROUTING_ONLY_MODE", "false").lower() == "true"
+    
+    if ROUTING_ONLY_MODE:
+        # Skip model call, just show routing decision with details
+        user_text = message or "What's in this image?"
+        if image:
+            user_storage = {"text": user_text, "image": image}
+        else:
+            user_storage = user_text
+        
+        # Format response based on router type (intent vs NN)
+        if "intent" in routing_details:
+            # Intent-based router
+            intent = routing_details.get("intent", "unknown")
+            details_str = f"📋 **Intent detected:** `{intent}`"
+            status_str = f"✅ Routed to {actual_model} (intent: {intent})"
+        else:
+            # NN-based router
+            selection_reason = routing_details.get("selection_reason", "unknown")
+            confidence = routing_details.get("confidence", 0)
+            probabilities = routing_details.get("probabilities", {})
+            prob_str = ", ".join([f"{k.split('/')[-1]}: {v:.1%}" for k, v in probabilities.items()])
+            details_str = f"📊 **Selection:** `{selection_reason}` (confidence: {confidence:.1%})\n\n📈 **Probabilities:** {prob_str}"
+            status_str = f"✅ Routed to {actual_model} ({selection_reason}, {confidence:.1%})"
+        
+        formatted_response = f"🎯 **Routed to: {actual_model}**\n\n{details_str}\n\n_Model call skipped (routing-only mode)_"
+        history.append([user_storage, formatted_response])
+        return history, status_str
+    
     status = f"✅ Router selected model, getting response..."
     
     # Step 2: Call the selected model
